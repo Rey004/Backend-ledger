@@ -51,7 +51,7 @@ async function sendTransactionEmail(userEmail, name, amount, fromAccount, toAcco
     const subject = 'Transaction Notification from Backend-ledger';
     const text = `Hi ${name},\n\nA transaction of amount ${amount} has been made from account ${fromAccount} to account ${toAccount}.\n\nBest regards,\nThe Backend-ledger Team`;
     const html = `<p>Hi ${name},</p><p>A transaction of amount <strong>${amount}</strong> has been made from account <strong>${fromAccount}</strong> to account <strong>${toAccount}</strong>.</p><p>Best regards,<br>The Backend-ledger Team</p>`;
-    await sendEmail(to, subject, text, html);
+    await sendEmail(userEmail, subject, text, html);
 }
 
 async function sendTransactionFailedEmail(userEmail, name, amount, fromAccount, toAccount) {

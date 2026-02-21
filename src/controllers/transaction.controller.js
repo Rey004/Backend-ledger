@@ -19,11 +19,11 @@ const emailService = require('../services/email.service')
  */
 
 async function createTransaction(req, res) {
-    const { fromAccount, toAccount, amount, idempotencyKey} = req.body
+    const { fromAccount, toAccount, amount, idempotencyKey } = req.body
 
     if (!fromAccount || !toAccount || !amount || !idempotencyKey) {
         return res.status(400).json({
-            message:"FromAccount, ToAccount, Amount, and IdempotencyKey are required"
+            message: "FromAccount, ToAccount, Amount, and IdempotencyKey are required"
         })
     }
 
@@ -55,7 +55,7 @@ async function createTransaction(req, res) {
                 message: "Transaction already completed",
                 transaction: isTransactionExists
             })
-        } 
+        }
         if (isTransactionExists.status === "PENDING") {
             return res.status(200).json({
                 message: "Transaction is still processing",
@@ -101,37 +101,45 @@ async function createTransaction(req, res) {
     /**
      * Create pending transaction
      */
+    let transaction;
+    try {
+        const session = await transactionModel.startSession()
+        session.startTransaction()
 
-    const session = await transactionModel.startSession()
-    session.startTransaction()
+        transaction = await transactionModel.create([{
+            fromAccount,
+            toAccount,
+            amount,
+            idempotencyKey,
+            status: "PENDING"
+        }], { session })
 
-    const transaction = await transactionModel.create([{
-        fromAccount,
-        toAccount,
-        amount,
-        idempotencyKey,
-        status: "PENDING"
-    }], { session })
+        const debitLedgerEntry = await ledgerModel.create([{
+            account: fromAccount,
+            amount: amount,
+            transaction: transaction[0]._id,
+            type: "DEBIT"
+        }], { session })
 
-    const debitLedgerEntry = await ledgerModel.create([{
-        account: fromAccount,
-        amount: amount,
-        transaction: transaction[0]._id,
-        type: "DEBIT"
-    }], { session })    
+        const creditLedgerEntry = await ledgerModel.create([{
+            account: toAccount,
+            amount: amount,
+            transaction: transaction[0]._id,
+            type: "CREDIT"
+        }], { session })
 
-    const creditLedgerEntry = await ledgerModel.create([{
-        account: toAccount,
-        amount: amount,
-        transaction: transaction[0]._id,
-        type: "CREDIT"
-    }], { session })
+        transaction[0].status = "COMPLETED"
+        await transaction[0].save({ session })
 
-    transaction[0].status = "COMPLETED"
-    await transaction[0].save({ session })
+        await session.commitTransaction()
+        session.endSession()
 
-    await session.commitTransaction()
-    session.endSession()
+    } catch (error) {
+        console.error("Transaction failed:", error)
+        return res.status(500).json({
+            message: "Transaction failed, please try again"
+        })
+    }
 
     /**
      * Send notification emails to sender and receiver
@@ -143,7 +151,7 @@ async function createTransaction(req, res) {
         amount,
         fromAccount,
         toAccount
-    ) 
+    )
 
     return res.status(201).json({
         message: "Transaction completed successfully",
@@ -153,7 +161,7 @@ async function createTransaction(req, res) {
 }
 
 async function createInitialFundsTransaction(req, res) {
-    const { toAccount, amount, idempotencyKey} = req.body
+    const { toAccount, amount, idempotencyKey } = req.body
 
     if (!req.user || !req.user._id) {
         return res.status(401).json({
@@ -163,7 +171,7 @@ async function createInitialFundsTransaction(req, res) {
 
     if (!toAccount || !amount || !idempotencyKey) {
         return res.status(400).json({
-            message:"ToAccount, Amount, and IdempotencyKey are required"
+            message: "ToAccount, Amount, and IdempotencyKey are required"
         })
     }
 
@@ -192,19 +200,14 @@ async function createInitialFundsTransaction(req, res) {
 
     const transaction = await transactionModel.create([{
         fromAccount: fromUserAccount._id,
-        toAccount,
+        toAccount: toAccount,
         amount,
         idempotencyKey,
         status: "PENDING"
     }], { session })
 
-    const debitLedgerEntry = await ledgerModel.create([{
-        account: fromUserAccount._id,
-        amount: amount,
-        transaction: transaction[0]._id,
-        type: "DEBIT"
-    }], { session })
-
+    // Initial funds: Only create CREDIT entry for recipient (no DEBIT)
+    // This "mints" new money into the system
     const creditLedgerEntry = await ledgerModel.create([{
         account: toAccount,
         amount: amount,
@@ -220,7 +223,7 @@ async function createInitialFundsTransaction(req, res) {
 
     return res.status(201).json({
         message: "Initial funds transaction completed successfully",
-        transaction: transaction[0] 
+        transaction: transaction[0]
     })
 }
 
